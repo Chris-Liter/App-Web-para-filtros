@@ -24,7 +24,7 @@ import time
 from pycuda.compiler import SourceModule
 import numpy as np
 from flask_cors import CORS
-
+from filtro_gaussiano import generar_mascara_gaussiana, aplicar_filtro_cuda
 import traceback
 
 
@@ -66,6 +66,8 @@ def generate_gabor_kernel(ksize, sigma, theta, lambd, psi, gamma):
     return kernel
 
 
+
+
 ####################################################################
 ##########################CODIGOS CUDA C############################
 ##GABOR
@@ -104,6 +106,7 @@ __global__ void applyGaborCUDA(uchar3* input, uchar3* output, float* kernel,
 
 ##GAUSSIANO
 
+
 ####################################################################
 
 
@@ -130,6 +133,8 @@ def gabor():
                 return jsonify({"error": "No se envió el parámetro 'mask'"}), 400
             
             mask = int(request.form['mask'])
+            block_x = int(request.form.get("block_x", 32))
+            block_y = int(request.form.get("block_y", 32))
 
             # Leer la imagen desde el archivo recibido
             uploaded_file = request.files['image']
@@ -155,8 +160,8 @@ def gabor():
             cuda.memcpy_htod(d_kernel, kernel)
 
             # Ejecutar kernel
-            block = (16, 16, 1)
-            grid = ((width + 15) // 16, (height + 15) // 16)
+            block = (block_x, block_y, 1)
+            grid =  ((width + block[0] - 1) // block[0], (height + block[1] - 1) // block[1])
 
             start = time.time()
             apply_gabor(d_input, d_output, d_kernel, 
@@ -179,7 +184,12 @@ def gabor():
             print(result)
             return jsonify({
                 "imagen": base64_img,
-                "tiempo": result,
+                "tiempo_ejecucion": round(result, 8),
+                "filtro": "gabor",
+                "mask": mask,
+                "sigma": 0,
+                "block_x": block_x,
+                "block_y": block_y
             })
                     
         except Exception as e:
@@ -192,9 +202,42 @@ def gabor():
     
 
 
-@app.route("/gaussiano")
+@app.route("/gaussiano", methods=['POST'])
 def gaussiano():
-    return
+    if 'image' not in request.files:
+        return jsonify({"error": "No se envió una imagen"}), 400
+
+    try:
+        tamaño = int(request.form.get("mask", 21))
+        sigma = float(request.form.get("sigma", 10.0))
+        block_x = int(request.form.get("block_x", 32))
+        block_y = int(request.form.get("block_y", 32))
+        archivo = request.files['image']
+        archivo_np = np.frombuffer(archivo.read(), np.uint8)
+        imagen = cv2.imdecode(archivo_np, cv2.IMREAD_COLOR)
+
+        if imagen is None:
+            return jsonify({"error": "Imagen no válida"}), 400
+
+        mascara = generar_mascara_gaussiana(tamaño, sigma)
+        resultado, tiempo = aplicar_filtro_cuda(imagen, mascara, block_x, block_y)
+
+        _, buffer = cv2.imencode('.jpg', resultado)
+        base64_image = base64.b64encode(buffer).decode('utf-8')
+
+        return jsonify({
+            "imagen": base64_image,
+            "tiempo_ejecucion": round(tiempo, 8),
+            "filtro": "gaussiano",
+            "mask": tamaño,
+            "sigma": sigma,
+            "block_x": block_x,
+            "block_y": block_y
+        })
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
     
     
