@@ -25,6 +25,7 @@ from pycuda.compiler import SourceModule
 import numpy as np
 from flask_cors import CORS
 
+import traceback
 
 
 
@@ -45,13 +46,17 @@ def hello():
 
 
 def generate_gabor_kernel(ksize, sigma, theta, lambd, psi, gamma):
+    # Si ksize es par, se incrementa para que sea impar
+    if ksize % 2 == 0:
+        ksize += 1
+
     kernel = np.zeros((ksize, ksize), dtype=np.float32)
     half = ksize // 2
     cos_theta = np.cos(theta)
     sin_theta = np.sin(theta)
 
-    for y in range(-half, half+1):
-        for x in range(-half, half+1):
+    for y in range(-half, half + 1):
+        for x in range(-half, half + 1):
             x_theta = x * cos_theta + y * sin_theta
             y_theta = -x * sin_theta + y * cos_theta
             gauss = np.exp(-(x_theta**2 + gamma**2 * y_theta**2) / (2 * sigma**2))
@@ -59,6 +64,7 @@ def generate_gabor_kernel(ksize, sigma, theta, lambd, psi, gamma):
             kernel[y + half, x + half] = gauss * wave
 
     return kernel
+
 
 ####################################################################
 ##########################CODIGOS CUDA C############################
@@ -169,7 +175,7 @@ def gabor():
             base64_img = base64.b64encode(buffer).decode('utf-8')
             result = (end-start)
             
-            ctx.pop()
+            
             print(result)
             return jsonify({
                 "imagen": base64_img,
@@ -177,8 +183,11 @@ def gabor():
             })
                     
         except Exception as e:
-            print(e)
+            print(str(e))
+            traceback.print_exc()
             return jsonify({"error": str(e)}), 500
+        finally:
+            ctx.pop()
 
     
 

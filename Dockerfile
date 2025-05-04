@@ -13,7 +13,14 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get -o Acquire::Check-Valid-Until=false install -y \
     build-essential python3 python3-pip && \
-    pip3 install flask pycuda numpy opencv-python
+    pip3 install flask pycuda numpy opencv-python pillow flask-cors
+
+RUN apt-get update && apt-get install -y libgl1
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0
+
+
 
 COPY . /app
 WORKDIR /app

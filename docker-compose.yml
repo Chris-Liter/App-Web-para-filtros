@@ -1,0 +1,40 @@
+version: '3.8'
+
+volumes:
+  cuda:
+    driver: local
+    driver_opts:
+      o: bind
+      type: none
+      device: /home/jorge/Documents/spacepg
+
+services:
+  web-react:
+    image: web-react
+    ports:
+      - "5173:80"
+      #- "5173:5173"
+    networks:
+      - datalogger_net
+
+  api-pycuda:
+    image: cuda
+    ports:
+      #- "5000:5000"
+      - "5000:5000"
+    networks:
+      - datalogger_net
+    volumes:
+      - cuda:/app/data  # Ajusta si quieres que acceda al volumen
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    runtime: nvidia  # Este es esencial para docker-compose clásico
+
+networks:
+  datalogger_net:
+    driver: bridge
