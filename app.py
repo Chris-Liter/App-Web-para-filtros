@@ -109,11 +109,112 @@ __global__ void applyGaborCUDA(uchar3* input, uchar3* output, float* kernel,
 
 ####################################################################
 
+from pycuda import driver as cuda
+from pycuda.compiler import SourceModule
 
-
-@app.route("/laplaciano")
+@app.route("/laplaciano", methods=["POST"])
 def laplaciano():
-    return
+    try:
+        # Inicializar CUDA y crear contexto
+        cuda.init()
+        device = cuda.Device(0)
+        context = device.make_context()
+
+        if 'image' not in request.files:
+            return jsonify({"error": "No se envió la imagen"}), 400
+
+        tamaño = int(request.form.get("mask", 21))
+        if tamaño % 2 == 0 or tamaño < 3:
+            return jsonify({"error": "El tamaño de la máscara debe ser impar y >= 3"}), 400
+
+        block_x = int(request.form.get("block_x", 16))
+        block_y = int(request.form.get("block_y", 16))
+
+        archivo = request.files['image']
+        archivo_np = np.frombuffer(archivo.read(), np.uint8)
+        imagen = cv2.imdecode(archivo_np, cv2.IMREAD_GRAYSCALE)
+
+        if imagen is None:
+            return jsonify({"error": "Imagen no válida"}), 400
+
+        imagen_float = imagen.astype(np.float32)
+        laplaciana = -1 * np.ones((tamaño, tamaño), dtype=np.float32)
+        centro = tamaño // 2
+        laplaciana[centro, centro] = (tamaño * tamaño) - 1
+        laplaciana_flat = laplaciana.flatten()
+
+        altura, ancho = imagen.shape
+        salida_gpu = np.zeros_like(imagen_float)
+
+        mod = SourceModule("""
+        __global__ void filtro_laplaciano(float *imagen, float *mascara, float *salida, int ancho, int alto, int offset, int tamano_mascara) {
+            int x = blockIdx.x * blockDim.x + threadIdx.x;
+            int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+            if (x >= offset && x < (ancho - offset) && y >= offset && y < (alto - offset)) {
+                float valor = 0.0;
+                for (int i = -offset; i <= offset; i++) {
+                    for (int j = -offset; j <= offset; j++) {
+                        int idx = (i + offset) * tamano_mascara + (j + offset);
+                        valor += imagen[(y + i) * ancho + (x + j)] * mascara[idx];
+                    }
+                }
+                salida[y * ancho + x] = fminf(fmaxf(valor, 0.0), 255.0);
+            }
+        }
+        """)
+
+        filtro_laplaciano_gpu = mod.get_function("filtro_laplaciano")
+
+        imagen_gpu = cuda.mem_alloc(imagen_float.nbytes)
+        cuda.memcpy_htod(imagen_gpu, imagen_float)
+
+        salida_gpu_mem = cuda.mem_alloc(salida_gpu.nbytes)
+
+        mascara_gpu = cuda.mem_alloc(laplaciana_flat.nbytes)
+        cuda.memcpy_htod(mascara_gpu, laplaciana_flat)
+
+        block_size = (block_x, block_y, 1)
+        grid_size = ((ancho + block_size[0] - 1) // block_size[0],
+                     (altura + block_size[1] - 1) // block_size[1])
+
+        offset = tamaño // 2
+
+        start_gpu = cuda.Event()
+        end_gpu = cuda.Event()
+        start_gpu.record()
+
+        filtro_laplaciano_gpu(imagen_gpu, mascara_gpu, salida_gpu_mem,
+                              np.int32(ancho), np.int32(altura), np.int32(offset), np.int32(tamaño),
+                              block=block_size, grid=grid_size)
+
+        end_gpu.record()
+        end_gpu.synchronize()
+        tiempo_gpu = start_gpu.time_till(end_gpu) / 1000.0
+
+        cuda.memcpy_dtoh(salida_gpu, salida_gpu_mem)
+
+        resultado_uint8 = salida_gpu.astype(np.uint8)
+        _, buffer = cv2.imencode('.jpg', resultado_uint8)
+        base64_image = base64.b64encode(buffer).decode('utf-8')
+
+        # Liberar el contexto CUDA
+        context.pop()
+
+        return jsonify({
+            "imagen": base64_image,
+            "tiempo_ejecucion": round(tiempo_gpu, 8),
+            "filtro": "laplaciano",
+            "mask": tamaño,
+            "block_x": block_x,
+            "block_y": block_y
+        })
+
+    except Exception as e:
+        print("Error:", e)
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/gabor", methods=['POST'])
