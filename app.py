@@ -207,7 +207,10 @@ def laplaciano():
             "filtro": "laplaciano",
             "mask": tamaño,
             "block_x": block_x,
-            "block_y": block_y
+            "block_y": block_y,
+            "grid_size": {"x": grid_size[0], "y": grid_size[1]},
+            "threads_total": block_x * block_y,
+            "blocks_total": grid_size[0] * grid_size[1]
         })
 
     except Exception as e:
@@ -264,6 +267,8 @@ def gabor():
             block = (block_x, block_y, 1)
             grid =  ((width + block[0] - 1) // block[0], (height + block[1] - 1) // block[1])
 
+            grid_x, grid_y = grid
+
             start = time.time()
             apply_gabor(d_input, d_output, d_kernel, 
                         np.int32(mask), np.int32(width), np.int32(height), 
@@ -290,7 +295,10 @@ def gabor():
                 "mask": mask,
                 "sigma": 0,
                 "block_x": block_x,
-                "block_y": block_y
+                "block_y": block_y,
+                "grid_size": {"x": grid_x, "y": grid_y},
+                "threads_total": block_x * block_y,
+                "blocks_total": grid_x * grid_y
             })
                     
         except Exception as e:
@@ -321,7 +329,8 @@ def gaussiano():
             return jsonify({"error": "Imagen no válida"}), 400
 
         mascara = generar_mascara_gaussiana(tamaño, sigma)
-        resultado, tiempo = aplicar_filtro_cuda(imagen, mascara, block_x, block_y)
+        #resultado, tiempo = aplicar_filtro_cuda(imagen, mascara, block_x, block_y)
+        resultado, tiempo, grid_x, grid_y = aplicar_filtro_cuda(imagen, mascara, block_x, block_y)
 
         _, buffer = cv2.imencode('.jpg', resultado)
         base64_image = base64.b64encode(buffer).decode('utf-8')
@@ -333,7 +342,10 @@ def gaussiano():
             "mask": tamaño,
             "sigma": sigma,
             "block_x": block_x,
-            "block_y": block_y
+            "block_y": block_y,
+            "grid_size": {"x": grid_x, "y": grid_y},
+            "threads_total": block_x * block_y,
+            "blocks_total": grid_x * grid_y
         })
 
     except Exception as e:

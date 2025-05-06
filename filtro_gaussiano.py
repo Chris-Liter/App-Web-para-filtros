@@ -78,6 +78,9 @@ def aplicar_filtro_cuda(imagen, mascara, block_x=32, block_y=32):
         end.synchronize()
         tiempo = start.time_till(end)
 
+        grid_x = (width + block_x - 1) // block_x
+        grid_y = (height + block_y - 1) // block_y
+
         salida = np.empty_like(imagen)
         cuda.memcpy_dtoh(salida, output_gpu)
 
@@ -86,7 +89,7 @@ def aplicar_filtro_cuda(imagen, mascara, block_x=32, block_y=32):
         output_gpu.free()
         mascara_gpu.free()
 
-        return salida, tiempo
+        return salida, tiempo, grid_x, grid_y
 
     finally:
         context.pop()  #liberamos el contexto qui
